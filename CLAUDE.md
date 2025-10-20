@@ -4,18 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is `passenv`, a Python CLI tool that runs commands with environment variables populated from `pass` (password store) entries. It reads secrets from a specific pass folder (non-recursively), extracts the first non-empty line from each `.gpg` file, and exports them as environment variables with names based on the file basename converted to UPPER_SNAKE_CASE.
+This is `passenv`, a Python CLI tool that runs commands with environment variables populated from `pass` (password store) entries using profile-based configuration. It reads a profile file (YAML or JSON) that explicitly maps environment variable names to pass paths, extracts the first non-empty line from each secret, and executes commands with those variables set.
 
 ## Key Architecture
 
 - **Single file application**: All functionality is contained in `main.py`
 - **Entry point**: Configured in `pyproject.toml` as `passenv = "main:main"`
-- **Core workflow**: 
-  1. Find password store root (default: `~/.password-store`)
-  2. List `.gpg` files in specified prefix folder (default: `secrets/`)
-  3. Extract first non-empty line from each secret using `pass show`
-  4. Convert filenames to env var names (basename → UPPER_SNAKE_CASE)
-  5. Execute command with populated environment
+- **Profile-based**: Uses YAML or JSON files to define env var → pass path mappings
+- **Core workflow**:
+  1. Load profile file (YAML or JSON)
+  2. Extract env var name → pass path mappings from the `envs` key
+  3. For each mapping, run `pass show <path>` and extract first non-empty line
+  4. Execute command with populated environment variables
 
 ## Common Commands
 
@@ -24,10 +24,10 @@ This is `passenv`, a Python CLI tool that runs commands with environment variabl
 uv pip install -e .
 
 # Run the tool
-passenv [--prefix secrets] [--overwrite] [--dry-run] [--cmd command] [-- command args]
+passenv --profile my-profile.yaml [--overwrite] [--dry-run] [--cmd command] [-- command args]
 
 # Test the installation
-passenv --dry-run
+passenv --profile test-profile.yaml --dry-run
 
 # Build distribution
 uv build
@@ -35,17 +35,16 @@ uv build
 
 ## Key Functions
 
-- `find_pass_store_root()`: Locates password store directory
-- `list_pass_entries_strict()`: Non-recursive listing of `.gpg` files in prefix
-- `pass_show_first_nonempty()`: Extracts first line from pass entries
-- `to_env_name_from_basename()`: Converts filenames to env var names
-- `build_env()`: Orchestrates environment variable creation
+- `load_profile(profile_path)`: Loads and validates profile file (JSON or YAML)
+- `pass_show_first_nonempty(entry)`: Extracts first non-empty line from pass entries
+- `build_env(profile_mapping, overwrite)`: Creates env vars from profile mappings
 - `main()`: CLI argument parsing and command execution
 
 ## Development Notes
 
 - Uses uv for package management (see `uv.lock`)
 - Python 3.10+ required (see `.python-version`)
-- No external dependencies beyond Python standard library
-- Strict non-recursive behavior - only reads `.gpg` files directly in the specified prefix folder
+- Single external dependency: PyYAML
+- Profile files must contain an `envs` key with a dictionary of env var → pass path mappings
 - Uses `os.execvpe()` for command execution to replace current process
+- Supports both YAML (.yaml, .yml) and JSON (.json) profile formats

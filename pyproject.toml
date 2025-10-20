@@ -4,7 +4,7 @@ version = "0.2.1"
 description = "Run commands with environment variables populated from pass entries"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["pyyaml"]
 
 [project.scripts]
 passenv = "main:main"

@@ -2,16 +2,16 @@
 # -*- coding: utf-8 -*-
 
 """
-passenv (strict, non-recursive):
-- Reads secrets only from the exact pass folder <prefix> (no subfolders).
-- For each *.gpg in that folder, runs `pass show <entry>` and takes the first non-empty line.
-- Exports env vars named after the basename of the file (UPPER_SNAKE).
-- Fails if the prefix doesn't exist or contains no *.gpg files.
-- Does not overwrite existing env vars unless --overwrite is set.
-- If no command provided (after --), runs `env` by default, or use --cmd.
+passenv - profile-based secret injection:
+- Reads a profile file (YAML or JSON) with env var to pass path mappings
+- For each mapping, runs `pass show <path>` and takes the first non-empty line
+- Exports environment variables with the specified names
+- Does not overwrite existing env vars unless --overwrite is set
+- If no command provided (after --), runs `env` by default, or use --cmd
 """
 
 import argparse
+import json
 import os
 import pathlib
 import shlex
@@ -19,25 +19,38 @@ import subprocess
 import sys
 from typing import Dict, List
 
-def find_pass_store_root() -> pathlib.Path:
-    root = os.environ.get("PASSWORD_STORE_DIR", os.path.expanduser("~/.password-store"))
-    return pathlib.Path(root)
+import yaml
 
-def list_pass_entries_strict(root: pathlib.Path, prefix: str) -> List[str]:
+def load_profile(profile_path: str) -> Dict[str, str]:
     """
-    Return pass entry names (relative to store root without .gpg) for *.gpg
-    directly under <root>/<prefix>. No recursion.
+    Load profile from JSON or YAML file based on extension.
+    Expected format: { "envs": { "ENV_VAR_NAME": "pass/path/to/secret", ... } }
+    Returns the envs mapping dict.
     """
-    base = (root / prefix).resolve()
-    if not base.exists() or not base.is_dir():
-        raise RuntimeError(f"Prefix '{prefix}' not found in password store at '{base}'")
-    entries: List[str] = []
-    for p in sorted(base.glob("*.gpg")):  # non-recursive
-        rel = p.relative_to(root).as_posix()
-        entries.append(rel[:-4])  # strip .gpg
-    if not entries:
-        raise RuntimeError(f"No secrets found under prefix '{prefix}' (no *.gpg files)")
-    return entries
+    path = pathlib.Path(profile_path)
+    if not path.exists():
+        raise RuntimeError(f"Profile file not found: {profile_path}")
+
+    suffix = path.suffix.lower()
+    try:
+        with open(path, 'r') as f:
+            if suffix in ['.yaml', '.yml']:
+                data = yaml.safe_load(f)
+            elif suffix == '.json':
+                data = json.load(f)
+            else:
+                raise RuntimeError(f"Unsupported profile format: {suffix}. Use .json, .yaml, or .yml")
+    except Exception as e:
+        raise RuntimeError(f"Failed to parse profile file: {e}")
+
+    if not isinstance(data, dict) or 'envs' not in data:
+        raise RuntimeError("Profile must contain 'envs' key with environment variable mappings")
+
+    envs = data['envs']
+    if not isinstance(envs, dict):
+        raise RuntimeError("Profile 'envs' must be a dictionary mapping env var names to pass paths")
+
+    return envs
 
 def pass_show_first_nonempty(entry: str) -> str:
     """
@@ -60,30 +73,31 @@ def pass_show_first_nonempty(entry: str) -> str:
             return s
     raise RuntimeError(f"Empty secret for '{entry}'")
 
-def to_env_name_from_basename(entry: str) -> str:
+def build_env(profile_mapping: Dict[str, str], overwrite: bool) -> Dict[str, str]:
     """
-    Convert pass entry path to env var using only the basename.
-    secrets/claude/JIRA_TOKEN -> JIRA_TOKEN
-    """
-    base = pathlib.Path(entry).name
-    up = base.upper()
-    return "".join(ch if (ch.isalnum() or ch == "_") else "_" for ch in up)
+    Build environment variables from profile mapping.
 
-def build_env(store_root: pathlib.Path, prefix: str, overwrite: bool) -> Dict[str, str]:
+    Args:
+        profile_mapping: Dictionary mapping env var names to pass paths
+        overwrite: Whether to overwrite existing environment variables
+
+    Returns:
+        Dictionary of environment variables to set
+    """
     env_vars: Dict[str, str] = {}
-    entries = list_pass_entries_strict(store_root, prefix)
-    for entry in entries:
-        var_name = to_env_name_from_basename(entry)
+
+    for var_name, pass_path in profile_mapping.items():
         if not overwrite and var_name in os.environ:
             continue
-        value = pass_show_first_nonempty(entry)
+        value = pass_show_first_nonempty(pass_path)
         env_vars[var_name] = value
+
     return env_vars
 
 def main():
-    parser = argparse.ArgumentParser(description="Execute a command with env vars from pass (non-recursive).")
-    parser.add_argument("--prefix", default="secrets",
-                        help="pass path prefix (exact folder under the store; default: secrets)")
+    parser = argparse.ArgumentParser(description="Execute a command with env vars from pass profile.")
+    parser.add_argument("--profile", required=True,
+                        help="path to profile file (.json, .yaml, .yml) defining env var to pass path mappings")
     parser.add_argument("--overwrite", action="store_true",
                         help="overwrite existing environment variables")
     parser.add_argument("--dry-run", action="store_true",
@@ -104,9 +118,15 @@ def main():
     if not cmd_and_args:
         cmd_and_args = [args.cmd] if args.cmd else ["env"]
 
-    store_root = find_pass_store_root()
+    # Load profile mapping
     try:
-        env_to_set = build_env(store_root, args.prefix, args.overwrite)
+        profile_mapping = load_profile(args.profile)
+    except Exception as e:
+        print(f"[ERROR] {e}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        env_to_set = build_env(profile_mapping, args.overwrite)
     except Exception as e:
         print(f"[ERROR] {e}", file=sys.stderr)
         sys.exit(1)

@@ -4,14 +4,14 @@ Run commands with environment variables populated from `pass` (password store) e
 
 ## Overview
 
-`passenv` is a Python CLI tool that reads secrets from your `pass` password store and executes commands with those secrets available as environment variables. It provides a secure way to inject credentials into your development workflow without hardcoding them.
+`passenv` is a Python CLI tool that reads secrets from your `pass` password store using profile-based configuration and executes commands with those secrets available as environment variables. It provides a secure way to inject credentials into your development workflow without hardcoding them.
 
 ### Key Features
 
-- **Non-recursive**: Only reads `.gpg` files directly from the specified folder (no subdirectories)
+- **Profile-based**: Explicit mapping of environment variables to pass paths via YAML or JSON
 - **Secure**: Uses `pass show` to decrypt secrets, respects existing environment variables
-- **Flexible**: Supports custom prefixes, command specification, and dry-run mode
-- **Simple**: Single-file implementation with no external dependencies
+- **Flexible**: Load secrets from any pass paths, custom command specification, and dry-run mode
+- **Simple**: Single-file implementation with minimal dependencies (only PyYAML)
 
 ## Installation
 
@@ -43,29 +43,51 @@ uv pip install -e .
 
 ## Usage
 
-### Basic Usage
+### Create a Profile File
 
-```bash
-# Run 'env' command with secrets from 'secrets/' folder
-passenv
+Create a profile file (YAML or JSON) that maps environment variable names to pass paths:
 
-# Run specific command with secrets
-passenv -- your-command arg1 arg2
-
-# Use different pass prefix
-passenv --prefix myapp/prod -- your-command
-
-# See what would be set without running
-passenv --dry-run
+**YAML format (`my-profile.yaml`):**
+```yaml
+envs:
+  DATABASE_URL: myapp/prod/database_url
+  API_KEY: myapp/prod/api_key
+  JWT_SECRET: shared/jwt_secret
 ```
 
-### Advanced Options
+**JSON format (`my-profile.json`):**
+```json
+{
+  "envs": {
+    "DATABASE_URL": "myapp/prod/database_url",
+    "API_KEY": "myapp/prod/api_key",
+    "JWT_SECRET": "shared/jwt_secret"
+  }
+}
+```
+
+### Run Commands
 
 ```bash
-passenv [OPTIONS] [-- COMMAND [ARGS...]]
+# Run with profile
+passenv --profile my-profile.yaml -- your-command arg1 arg2
+
+# See what would be set
+passenv --profile my-profile.yaml --dry-run
+
+# Overwrite existing env vars
+passenv --profile my-profile.yaml --overwrite -- your-command
+```
+
+### Command-Line Options
+
+```bash
+passenv --profile PROFILE [OPTIONS] [-- COMMAND [ARGS...]]
+
+Required:
+  --profile PATH    Profile file (.json, .yaml, .yml) with env var mappings
 
 Options:
-  --prefix TEXT     Pass path prefix (default: "secrets")
   --overwrite       Overwrite existing environment variables
   --dry-run         Show what variables would be set
   --cmd TEXT        Default command if none provided after --
@@ -74,28 +96,26 @@ Options:
 
 ## How It Works
 
-1. **Find Password Store**: Locates your pass store (default: `~/.password-store`)
-2. **List Secrets**: Finds all `.gpg` files in the specified prefix folder
-3. **Extract Values**: Runs `pass show` for each entry and takes the first non-empty line
-4. **Create Variables**: Converts filenames to `UPPER_SNAKE_CASE` environment variable names
-5. **Execute Command**: Runs your command with the populated environment
+1. **Load Profile**: Reads the profile file (YAML or JSON) containing env var to pass path mappings
+2. **Extract Values**: For each mapping, runs `pass show <path>` and takes the first non-empty line
+3. **Set Variables**: Creates environment variables with the exact names specified in the profile
+4. **Execute Command**: Runs your command with the populated environment
 
 ### Example
 
-Given this pass structure:
-```
-~/.password-store/
-secrets/
-  api_key.gpg
-  database_url.gpg
-  jwt_secret.gpg
+Given this profile file `app.yaml`:
+```yaml
+envs:
+  DATABASE_URL: myapp/prod/db_url
+  API_KEY: shared/services/api_key
+  JWT_SECRET: shared/jwt_secret
 ```
 
-Running `passenv --dry-run` would show:
+Running `passenv --profile app.yaml --dry-run` would show:
 ```
 Would set variables (values hidden):
   API_KEY
-  DATABASE_URL  
+  DATABASE_URL
   JWT_SECRET
 Command: env
 ```
@@ -106,21 +126,32 @@ Command: env
 
 ```bash
 # Start development server with production secrets
-passenv --prefix myapp/prod -- npm run dev
+passenv --profile prod.yaml -- npm run dev
 
-# Run tests with test environment secrets  
-passenv --prefix myapp/test -- pytest
+# Run tests with test environment secrets
+passenv --profile test.yaml -- pytest
 
 # Deploy with deployment credentials
-passenv --prefix myapp/deploy -- ./deploy.sh
+passenv --profile deploy.yaml -- ./deploy.sh
+
+# Run Python app with specific secrets
+passenv --profile app.yaml -- python app.py
 ```
 
 ### One-liner with uvx
 
 ```bash
 # No installation required - run directly from GitHub
-uvx --from git+https://github.com/harnyk/passenv.git passenv --prefix myapp/prod -- python app.py
+uvx --from git+https://github.com/harnyk/passenv.git passenv --profile my-profile.yaml -- python app.py
 ```
+
+### Profile Benefits
+
+- **Explicit control**: Choose exactly which secrets to load and their env var names
+- **Cross-folder support**: Load secrets from different pass folders in one profile
+- **Flexible naming**: Use any env var name that matches your application's needs
+- **Documentation**: Profile files serve as documentation of which secrets your app requires
+- **Version control friendly**: Profile files (without values) can be committed to show required secrets
 
 ## Requirements
 

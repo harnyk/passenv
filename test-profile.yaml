@@ -1,0 +1,3 @@
+envs:
+  MY_KEY: some/prefix/path/MYKEY
+  OPENAI_TOKEN: org/ooo-vector/keys/OPENAI
