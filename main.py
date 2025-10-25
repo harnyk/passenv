@@ -96,13 +96,19 @@ def load_profile(profile_path: str) -> Dict[str, str]:
 
     return envs
 
-def pass_show_first_nonempty(entry: str) -> str:
+def pass_show_first_nonempty(entry: str, pass_cmd: str = "pass") -> str:
     """
-    Run `pass show <entry>` and return the first non-empty trimmed line.
+    Run `<pass_cmd> show <entry>` and return the first non-empty trimmed line.
+
+    Args:
+        entry: Path to the pass entry
+        pass_cmd: Command to use for pass (default: "pass")
     """
+    # Split the pass command to handle cases like "wsl pass"
+    cmd_parts = shlex.split(pass_cmd)
     try:
         res = subprocess.run(
-            ["pass", "show", entry],
+            cmd_parts + ["show", entry],
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -117,13 +123,14 @@ def pass_show_first_nonempty(entry: str) -> str:
             return s
     raise RuntimeError(f"Empty secret for '{entry}'")
 
-def build_env(profile_mapping: Dict[str, str], overwrite: bool) -> Dict[str, str]:
+def build_env(profile_mapping: Dict[str, str], overwrite: bool, pass_cmd: str = "pass") -> Dict[str, str]:
     """
     Build environment variables from profile mapping.
 
     Args:
         profile_mapping: Dictionary mapping env var names to pass paths
         overwrite: Whether to overwrite existing environment variables
+        pass_cmd: Command to use for pass (default: "pass")
 
     Returns:
         Dictionary of environment variables to set
@@ -133,7 +140,7 @@ def build_env(profile_mapping: Dict[str, str], overwrite: bool) -> Dict[str, str
     for var_name, pass_path in profile_mapping.items():
         if not overwrite and var_name in os.environ:
             continue
-        value = pass_show_first_nonempty(pass_path)
+        value = pass_show_first_nonempty(pass_path, pass_cmd)
         env_vars[var_name] = value
 
     return env_vars
@@ -146,6 +153,8 @@ def main():
                         help="overwrite existing environment variables")
     parser.add_argument("--dry-run", action="store_true",
                         help="print which VARs would be set (no values) and the command")
+    parser.add_argument("--pass-cmd", dest="pass_cmd", default="pass",
+                        help="command to use for pass (default: 'pass', e.g., 'wsl pass' for Windows)")
     parser.add_argument("--cmd", default=None,
                         help="command to run if nothing provided after -- (otherwise defaults to `env`)")
     parser.add_argument("remainder", nargs=argparse.REMAINDER,
@@ -171,7 +180,7 @@ def main():
         sys.exit(1)
 
     try:
-        env_to_set = build_env(profile_mapping, args.overwrite)
+        env_to_set = build_env(profile_mapping, args.overwrite, args.pass_cmd)
     except Exception as e:
         print(f"[ERROR] {e}", file=sys.stderr)
         sys.exit(1)
