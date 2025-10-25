@@ -21,6 +21,50 @@ from typing import Dict, List
 
 import yaml
 
+def resolve_profile_path(profile_arg: str) -> str:
+    """
+    Resolve profile path. If the argument is not an existing file path,
+    search for it in ~/.passenv/ with .yaml and .yml extensions.
+
+    Args:
+        profile_arg: Either a full path or a profile name
+
+    Returns:
+        Resolved absolute path to the profile file
+
+    Raises:
+        RuntimeError: If profile file cannot be found
+    """
+    path = pathlib.Path(profile_arg)
+
+    # If it's an absolute path or has directory separators, use it as-is
+    if path.is_absolute() or '/' in profile_arg:
+        if path.exists():
+            return str(path)
+        raise RuntimeError(f"Profile file not found: {profile_arg}")
+
+    # Otherwise, search in ~/.passenv/
+    passenv_dir = pathlib.Path.home() / ".passenv"
+
+    # Try the name as-is first (in case it has an extension)
+    candidate = passenv_dir / profile_arg
+    if candidate.exists():
+        return str(candidate)
+
+    # Try with extensions
+    for ext in ['.yaml', '.yml']:
+        candidate = passenv_dir / f"{profile_arg}{ext}"
+        if candidate.exists():
+            return str(candidate)
+
+    # Not found anywhere
+    raise RuntimeError(
+        f"Profile '{profile_arg}' not found. Searched:\n"
+        f"  - {passenv_dir / profile_arg}\n"
+        f"  - {passenv_dir / (profile_arg + '.yaml')}\n"
+        f"  - {passenv_dir / (profile_arg + '.yml')}"
+    )
+
 def load_profile(profile_path: str) -> Dict[str, str]:
     """
     Load profile from JSON or YAML file based on extension.
@@ -97,7 +141,7 @@ def build_env(profile_mapping: Dict[str, str], overwrite: bool) -> Dict[str, str
 def main():
     parser = argparse.ArgumentParser(description="Execute a command with env vars from pass profile.")
     parser.add_argument("--profile", required=True,
-                        help="path to profile file (.json, .yaml, .yml) defining env var to pass path mappings")
+                        help="profile name (searches ~/.passenv/ with .yaml/.yml extensions) or full path to profile file")
     parser.add_argument("--overwrite", action="store_true",
                         help="overwrite existing environment variables")
     parser.add_argument("--dry-run", action="store_true",
@@ -118,9 +162,10 @@ def main():
     if not cmd_and_args:
         cmd_and_args = [args.cmd] if args.cmd else ["env"]
 
-    # Load profile mapping
+    # Resolve and load profile mapping
     try:
-        profile_mapping = load_profile(args.profile)
+        resolved_profile = resolve_profile_path(args.profile)
+        profile_mapping = load_profile(resolved_profile)
     except Exception as e:
         print(f"[ERROR] {e}", file=sys.stderr)
         sys.exit(1)
