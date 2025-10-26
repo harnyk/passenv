@@ -199,12 +199,15 @@ def main():
     child_env.update(env_to_set)
 
     try:
-        os.execvpe(cmd_and_args[0], cmd_and_args, child_env)
+        # Use subprocess.run instead of os.execvpe for better Windows compatibility
+        # This ensures stdin/stdout/stderr are properly inherited on all platforms
+        result = subprocess.run(cmd_and_args, env=child_env)
+        sys.exit(result.returncode)
     except FileNotFoundError:
         print(f"[ERROR] Command not found: {cmd_and_args[0]}", file=sys.stderr)
         sys.exit(127)
     except Exception as e:
-        print(f"[ERROR] Failed to exec command: {e}", file=sys.stderr)
+        print(f"[ERROR] Failed to run command: {e}", file=sys.stderr)
         sys.exit(1)
 
 if __name__ == "__main__":

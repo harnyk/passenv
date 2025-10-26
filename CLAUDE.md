@@ -20,7 +20,10 @@ This is `passenv`, a Python CLI tool that runs commands with environment variabl
 ## Common Commands
 
 ```bash
-# Install in development mode
+# Install globally as a CLI tool (editable mode for development)
+uv tool install --force --editable .
+
+# Install in development mode (alternative)
 uv pip install -e .
 
 # Run the tool
@@ -46,5 +49,5 @@ uv build
 - Python 3.10+ required (see `.python-version`)
 - Single external dependency: PyYAML
 - Profile files must contain an `envs` key with a dictionary of env var → pass path mappings
-- Uses `os.execvpe()` for command execution to replace current process
+- Uses `subprocess.run()` for command execution with proper stdin/stdout/stderr inheritance (Windows-compatible)
 - Supports both YAML (.yaml, .yml) and JSON (.json) profile formats
